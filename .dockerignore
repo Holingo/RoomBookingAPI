@@ -1,0 +1,10 @@
+node_modules/
+.git/
+.env
+.env.*
+tests/
+jest.integration.config.cjs
+.idea/
+.vs/
+*.zip
+npm-debug.log*

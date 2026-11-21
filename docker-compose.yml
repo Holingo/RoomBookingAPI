@@ -1,0 +1,35 @@
+services:
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "${DOCKER_DATABASE_URL:?Ustaw DOCKER_DATABASE_URL w pliku .env}"
+      JWT_SECRET: "${JWT_SECRET:?Ustaw JWT_SECRET w pliku .env}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-15m}"
+      PORT: "${PORT:-3000}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:?Ustaw ADMIN_EMAIL w pliku .env}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Ustaw ADMIN_PASSWORD w pliku .env}"
+    ports:
+      - "127.0.0.1:${API_PORT:-3001}:${PORT:-3000}"
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?Ustaw POSTGRES_USER w pliku .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Ustaw POSTGRES_PASSWORD w pliku .env}"
+      POSTGRES_DB: "${POSTGRES_DB:?Ustaw POSTGRES_DB w pliku .env}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      start_period: 5s
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
