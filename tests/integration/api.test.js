@@ -4,11 +4,13 @@ const { createApp } = require("../../src/app");
 const { createBuildingsRepository } = require("../../src/modules/buildings/buildings.repository.knex");
 const { createRoomsRepository } = require("../../src/modules/rooms/rooms.repository.knex");
 const { createReservationsRepository } = require("../../src/modules/reservations/reservations.repository.knex");
+const { createAuditLogRepository } = require("../../src/modules/audit/auditLog.repository.knex");
 
 const api = request(createApp({
   buildingsRepository: createBuildingsRepository(db),
   roomsRepository: createRoomsRepository(db),
   reservationsRepository: createReservationsRepository(db),
+  auditLogRepository: createAuditLogRepository(db),
 }));
 const password = "Integration-test-password";
 const reservationsPath = "/api/reservations";
@@ -24,7 +26,7 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(async () => {
-  await db.raw("TRUNCATE TABLE reservations, rooms, buildings, users RESTART IDENTITY");
+  await db.raw("TRUNCATE TABLE audit_log, reservations, rooms, buildings, users RESTART IDENTITY");
   firstSlot = Date.now() + 24 * 60 * 60 * 1000;
 });
 
@@ -187,4 +189,52 @@ test("limits the page length while keeping the full count in meta.total", async 
 
   expect(response.body.data).toHaveLength(2);
   expect(response.body.meta).toMatchObject({ page: 1, limit: 2, total: 3, totalPages: 2 });
+});
+
+test("audits only successful reservation changes and serves the log to administrators", async () => {
+  const owner = await registerAndLogin();
+  const { user: admin } = await registerAndLogin("admin@example.test");
+  await db("users").where({ id: admin.id }).update({ role: "ADMIN" });
+  const login = await api.post("/api/auth/login").send({ email: admin.email, password }).expect(200);
+  const adminAuth = `Bearer ${login.body.accessToken}`;
+  const room = await createRoom();
+  const body = reservationBody(room.id);
+  const created = await api.post(reservationsPath).set("Authorization", owner.auth).send(body).expect(201);
+  const reservationId = created.body.id;
+
+  await api.post(reservationsPath).set("Authorization", owner.auth).send(body).expect(409);
+
+  const cancel = () => api.patch(`${created.headers.location}/cancel`)
+    .set("Authorization", adminAuth).expect(200);
+  const [first, second] = await Promise.all([cancel(), cancel()]);
+  expect(first.body.status).toBe("CANCELLED");
+  expect(second.body.cancelledAt).toBe(first.body.cancelledAt);
+
+  const auditPath = "/api/admin/audit-log";
+  await api.get(auditPath).set("Authorization", owner.auth).expect(403);
+  const history = await api.get(auditPath).set("Authorization", adminAuth).expect(200);
+  expect(history.body.meta.total).toBe(2);
+  expect(history.body.data.map(({ eventType, payload }) => ({ eventType, payload }))).toEqual([
+    {
+      eventType: "reservation.cancelled",
+      payload: { reservationId, roomId: room.id, userId: owner.user.id, cancelledBy: admin.id },
+    },
+    {
+      eventType: "reservation.created",
+      payload: {
+        reservationId, roomId: room.id, userId: owner.user.id,
+        startTime: body.startTime, endTime: body.endTime,
+      },
+    },
+  ]);
+
+  const page = await api.get(auditPath).set("Authorization", adminAuth)
+    .query({ page: 2, limit: 1 }).expect(200);
+  expect(page.body.data.map((row) => row.eventType)).toEqual(["reservation.created"]);
+  expect(page.body.meta).toEqual({ page: 2, limit: 1, total: 2, totalPages: 2 });
+
+  const filtered = await api.get(auditPath).set("Authorization", adminAuth)
+    .query({ eventType: "reservation.cancelled", limit: 1 }).expect(200);
+  expect(filtered.body.data.map((row) => row.eventType)).toEqual(["reservation.cancelled"]);
+  expect(filtered.body.meta.total).toBe(1);
 });

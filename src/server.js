@@ -5,15 +5,18 @@ const env = require("./config/env");
 const { createBuildingsRepository } = require("./modules/buildings/buildings.repository.knex");
 const { createRoomsRepository } = require("./modules/rooms/rooms.repository.knex");
 const { createReservationsRepository } = require("./modules/reservations/reservations.repository.knex");
+const { createAuditLogRepository } = require("./modules/audit/auditLog.repository.knex");
 
 const buildingsRepository = createBuildingsRepository(db);
 const roomsRepository = createRoomsRepository(db);
 const reservationsRepository = createReservationsRepository(db);
+const auditLogRepository = createAuditLogRepository(db);
 
 const app = createApp({
   buildingsRepository,
   roomsRepository,
   reservationsRepository,
+  auditLogRepository,
 });
 
 const server = app.listen(env.PORT, () => {

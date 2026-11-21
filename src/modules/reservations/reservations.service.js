@@ -4,6 +4,7 @@ const {
   ForbiddenError,
   ValidationError,
 } = require("../../errors/AppError");
+const { createEventBus } = require("../../events/eventBus");
 
 const MIN_DURATION_MS = 15 * 60 * 1000;
 const MAX_DURATION_MS = 8 * 60 * 60 * 1000;
@@ -20,6 +21,7 @@ function canAccessReservation(reservation, actor) {
 function createReservationsService({
   roomsRepository,
   reservationsRepository,
+  eventBus = createEventBus(),
   now = () => new Date(),
 }) {
   async function createReservation(input) {
@@ -79,7 +81,7 @@ function createReservationsService({
       throw new ConflictError("Room is already booked", "ROOM_ALREADY_BOOKED");
     }
 
-    return reservationsRepository.create({
+    const reservation = await reservationsRepository.create({
       roomId: input.roomId,
       userId: input.userId,
       participants: input.participants,
@@ -88,6 +90,15 @@ function createReservationsService({
       status: "CONFIRMED",
       createdAt: new Date(nowMs).toISOString(),
     });
+
+    await eventBus.publish("reservation.created", {
+      reservationId: reservation.id,
+      roomId: input.roomId,
+      userId: reservation.user.id,
+      startTime: reservation.startTime,
+      endTime: reservation.endTime,
+    });
+    return reservation;
   }
 
   async function getReservationById(id, actor) {
@@ -129,10 +140,24 @@ function createReservationsService({
       );
     }
 
-    return reservationsRepository.updateStatus(id, {
+    const { reservation: updated, changed } = await reservationsRepository.updateStatus(id, {
       status: "CANCELLED",
       cancelledAt: cancelledAt.toISOString(),
     });
+    if (!updated) throw new NotFoundError("Reservation");
+
+    if (changed) {
+      await eventBus.publish("reservation.cancelled", {
+        reservationId: updated.id,
+        roomId: updated.room?.id ?? updated.roomId,
+        userId: updated.user.id,
+        cancelledBy: Number(actor.id),
+      }, {
+        actorRole: actor.role,
+        ownerEmail: updated.user.email,
+      });
+    }
+    return updated;
   }
   
   async function listReservations(filters) {

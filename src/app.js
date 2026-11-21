@@ -8,6 +8,9 @@ const swaggerDocument = require('./config/swagger.json');
 
 const authRoutes = require("./routes/auth.routes");
 const authenticate = require("./middleware/authenticate");
+const { createEventBus } = require("./events/eventBus");
+const { registerReservationListeners } = require("./events/reservationListeners");
+const { createAuditLogRouter } = require("./modules/audit/auditLog.routes");
 
 const { createBuildingsService } = require("./modules/buildings/buildings.service");
 const { createBuildingsController } = require("./modules/buildings/buildings.controller");
@@ -21,8 +24,10 @@ const { createReservationsService } = require("./modules/reservations/reservatio
 const { createReservationsController } = require("./modules/reservations/reservations.controller");
 const { createReservationsRouter } = require("./modules/reservations/reservations.routes");
 
-function createApp({ buildingsRepository, roomsRepository, reservationsRepository }) {
+function createApp({ buildingsRepository, roomsRepository, reservationsRepository, auditLogRepository }) {
 	const app = express();
+	const eventBus = createEventBus();
+	registerReservationListeners(eventBus, auditLogRepository);
 	
 	app.use(requestLogger);
 	app.use(express.json());
@@ -40,9 +45,10 @@ function createApp({ buildingsRepository, roomsRepository, reservationsRepositor
 	const roomsController = createRoomsController(roomsService);
 	app.use("/api/rooms", createRoomsRouter(roomsController));
 
-	const reservationsService = createReservationsService({ roomsRepository, reservationsRepository });
+	const reservationsService = createReservationsService({ roomsRepository, reservationsRepository, eventBus });
 	const reservationsController = createReservationsController(reservationsService);
 	app.use("/api/reservations", createReservationsRouter(reservationsController));
+	app.use("/api/admin/audit-log", createAuditLogRouter(auditLogRepository));
 
 	app.get("/api/debug/crash", () => {
 		throw new Error("boom");

@@ -8,7 +8,7 @@ const ADMIN = { id: "30", role: "ADMIN" };
 const START = "2030-05-01T10:00:00.000Z";
 const END = "2030-05-01T11:00:00.000Z";
 
-function setup(seededReservation) {
+function setup(seededReservation, eventBus) {
   const roomsRepository = createRoomsRepository([
     { id: 1, capacity: 5 },
     { id: 2, capacity: 5 },
@@ -17,7 +17,7 @@ function setup(seededReservation) {
     seededReservation ? [{
       id: 1,
       roomId: 1,
-      user: { id: 10 },
+      user: { id: 10, email: "owner@example.test" },
       participants: 2,
       startTime: START,
       endTime: END,
@@ -30,6 +30,7 @@ function setup(seededReservation) {
   const service = createReservationsService({
     roomsRepository,
     reservationsRepository,
+    eventBus,
     now: () => new Date(currentTime),
   });
 
@@ -53,6 +54,36 @@ function setup(seededReservation) {
 }
 
 describe("createReservation", () => {
+  test("publishes reservation.created after the repository saves the reservation", async () => {
+    const eventBus = { publish: jest.fn() };
+    const { create, reservationsRepository } = setup(undefined, eventBus);
+    eventBus.publish.mockImplementation(async (_eventType, payload) => {
+      expect(await reservationsRepository.findById(payload.reservationId)).not.toBeNull();
+    });
+
+    const reservation = await create();
+
+    expect(eventBus.publish).toHaveBeenCalledTimes(1);
+    expect(eventBus.publish).toHaveBeenCalledWith("reservation.created", {
+      reservationId: reservation.id,
+      roomId: 1,
+      userId: 10,
+      startTime: START,
+      endTime: END,
+    });
+  });
+
+  test("does not publish an event when the repository rejects the write", async () => {
+    const eventBus = { publish: jest.fn() };
+    const { create, reservationsRepository } = setup(undefined, eventBus);
+    jest.spyOn(reservationsRepository, "create").mockRejectedValueOnce(
+      new Error("Database write failed"),
+    );
+
+    await expect(create()).rejects.toThrow("Database write failed");
+    expect(eventBus.publish).not.toHaveBeenCalled();
+  });
+
   test.each([
     ["partially overlaps", "2030-05-01T10:30:00.000Z", "2030-05-01T11:30:00.000Z"],
     ["contains an existing reservation", "2030-05-01T09:30:00.000Z", "2030-05-01T11:30:00.000Z"],
@@ -141,7 +172,8 @@ describe("cancelReservation", () => {
   });
 
   test("keeps the original cancelledAt when cancelled twice", async () => {
-    const { service, setTime } = setup({});
+    const eventBus = { publish: jest.fn() };
+    const { service, setTime } = setup({}, eventBus);
     const firstCancellation = "2030-05-01T08:00:00.000Z";
 
     await expect(service.cancelReservation(1, OWNER)).resolves.toMatchObject({
@@ -155,6 +187,7 @@ describe("cancelReservation", () => {
       status: "CANCELLED",
       cancelledAt: firstCancellation,
     });
+    expect(eventBus.publish).toHaveBeenCalledTimes(1);
   });
 
   test("rejects a USER cancelling someone else's reservation", async () => {

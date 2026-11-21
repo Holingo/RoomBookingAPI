@@ -81,12 +81,13 @@
         
         async updateStatus(id, { status, cancelledAt }) {
             return db.transaction(async (trx) => {
-                await trx("reservations")
+                const affected = await trx("reservations")
                     .where({ id })
                     .whereNot("status", status)
                     .update({ status, cancelled_at: cancelledAt });
 
-                return this.findById(id, trx);
+                const reservation = await this.findById(id, trx);
+                return { reservation, changed: affected === 1 };
             });
         }
     };

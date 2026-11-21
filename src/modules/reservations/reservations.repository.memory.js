@@ -39,13 +39,14 @@ function createReservationsRepository(seedReservations = []) {
     },
 
     async updateStatus(id, { status, cancelledAt }) {
-      const reservation = reservations.find((r) => r.id === id);
-      if (!reservation) return null;
-      if (reservation.status === status) return reservation;
+      const reservation = reservations.find((r) => r.id === id) ?? null;
+      if (!reservation || reservation.status === status) {
+        return { reservation, changed: false };
+      }
 
       reservation.status = status;
       reservation.cancelledAt = cancelledAt;
-      return reservation;
+      return { reservation, changed: true };
     },
   };
 }
