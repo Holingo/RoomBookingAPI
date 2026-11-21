@@ -74,7 +74,7 @@ function createReservationsService({
     const isOverlapping = confirmedInRoom.some((existing) => {
       const existingStartMs = new Date(existing.startTime).getTime();
       const existingEndMs = new Date(existing.endTime).getTime();
-      return startMs <= existingEndMs && existingStartMs < endMs;
+      return startMs < existingEndMs && existingStartMs < endMs;
     });
 
     if (isOverlapping) {
