@@ -1,5 +1,7 @@
 # Room Booking API
 
+[![CI](https://github.com/Holingo/RoomBookingAPI/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Holingo/RoomBookingAPI/actions/workflows/ci.yml)
+
 API do rezerwacji sal w Express, z PostgreSQL i dokumentacją Swagger UI.
 
 ## Uruchomienie w Docker Compose
